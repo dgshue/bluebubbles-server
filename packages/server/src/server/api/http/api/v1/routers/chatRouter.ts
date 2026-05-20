@@ -81,22 +81,27 @@ export class ChatRouter {
         const withPayloadData = arrayHasOne(withQuery, ["message.payloadData", "message.payload-data"]);
         const { sort, before, after, offset, limit } = ctx?.request.query ?? {};
 
-        const [chats, __] = await Server().iMessageRepo.getChats({
-            chatGuid: ctx.params.guid,
-            withParticipants: false,
-            withArchived: true
-        });
+        // Note: the existence check that used to live here (a separate getChats
+        // call) has been removed.  The message query below inner-joins on
+        // chat.guid, so a non-existent chat simply returns an empty result —
+        // saving one DB round-trip per chat-open from the client.  If callers
+        // need an explicit 404 they can hit the singular chat-find endpoint.
 
-        if (isEmpty(chats)) throw new NotFound({ error: "Chat does not exist!" });
+        const parsedOffset = offset ? Number.parseInt(offset as string, 10) : 0;
+        const parsedLimit = limit ? Number.parseInt(limit as string, 10) : 100;
 
         const opts: DBMessageParams = {
             chatGuid: ctx.params.guid,
             withAttachments,
-            offset: offset ? Number.parseInt(offset as string, 10) : 0,
-            limit: limit ? Number.parseInt(limit as string, 10) : 100,
+            offset: parsedOffset,
+            limit: parsedLimit,
             sort: sort as "ASC" | "DESC",
             before: before ? Number.parseInt(before as string, 10) : null,
-            after: after ? Number.parseInt(after as string, 10) : null
+            after: after ? Number.parseInt(after as string, 10) : null,
+            // Skip the expensive COUNT(*) for pagination pages — clients
+            // only need the total on the first page (offset 0) to size the
+            // initial sync progress bar.
+            withCount: parsedOffset === 0
         };
 
         // Fetch the info for the message by GUID

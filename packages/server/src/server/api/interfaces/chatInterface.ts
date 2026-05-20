@@ -44,17 +44,30 @@ export class ChatInterface {
 
         const lastMessageCache: { [key: string]: Message | null } = {};
         if (withLastMessage) {
-            const [tmpChats, _] = await Server().iMessageRepo.getChats({
-                chatGuid: guid as string,
-                withLastMessage: true,
-                withParticipants: false,
-                withArchived,
-                offset: null,
-                limit: null
-            });
+            // Previously this fetched ALL chats with last messages on every
+            // paged request — O(total_chats) per page instead of O(limit).
+            // For 500+ chats that doubled the per-request cost.  Scope the
+            // lastMessage query to just the chats we're actually returning
+            // in this page.
+            const pageGuids = chats.map((c: Chat) => c.guid).filter(Boolean) as string[];
+            if (pageGuids.length > 0) {
+                const [tmpChats] = await Server().iMessageRepo.getChats({
+                    withLastMessage: true,
+                    withParticipants: false,
+                    withArchived,
+                    offset: null,
+                    limit: null,
+                    where: [
+                        {
+                            statement: "chat.guid IN (:...guids)",
+                            args: { guids: pageGuids }
+                        }
+                    ]
+                });
 
-            for (const chat of tmpChats) {
-                lastMessageCache[chat.guid] = chat.messages.length > 0 ? chat.messages[0] : null;
+                for (const chat of tmpChats) {
+                    lastMessageCache[chat.guid] = chat.messages.length > 0 ? chat.messages[0] : null;
+                }
             }
         }
 

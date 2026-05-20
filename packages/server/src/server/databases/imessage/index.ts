@@ -245,7 +245,8 @@ export class MessageRepository extends Loggable {
         withAttachments = true,
         sort = "DESC",
         orderBy = "message.dateCreated",
-        where = []
+        where = [],
+        withCount = true
     }: DBMessageParams): Promise<[Message[], number]> {
         // Sanitize some params
         if (after && typeof after === "number") after = new Date(after);
@@ -301,6 +302,14 @@ export class MessageRepository extends Loggable {
         query.orderBy(orderBy, sort);
         query.skip(offset);
         query.take(limit);
+
+        if (!withCount) {
+            const rows = await query.getMany();
+            // -1 signals "count not computed"; saves the second COUNT(*) query
+            // that getManyAndCount triggers (expensive on chats with thousands
+            // of rows, especially with the attachments join).
+            return [rows, -1];
+        }
 
         return await query.getManyAndCount();
     }
