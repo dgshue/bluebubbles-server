@@ -306,11 +306,29 @@ export const insertChatParticipants = async (message: Message): Promise<Message>
         theMessage = await Server().iMessageRepo.getMessage(message.guid, true, true);
     }
 
-    for (const chat of theMessage.chats) {
-        const [chats, _] = await Server().iMessageRepo.getChats({ chatGuid: chat.guid, withParticipants: true });
-        if (isEmpty(chats)) continue;
+    // Previously did one getChats() call per chat — fires on every socket emit
+    // when a new iMessage arrives, so under group-chat / burst load this
+    // serialized N round-trips before the event could be pushed.  Batch the
+    // lookup into a single IN-clause query.
+    const guids = (theMessage.chats ?? []).map(c => c.guid).filter(Boolean) as string[];
+    if (guids.length === 0) return theMessage;
 
-        chat.participants = chats[0].participants;
+    const [chats] = await Server().iMessageRepo.getChats({
+        withParticipants: true,
+        where: [
+            {
+                statement: "chat.guid IN (:...guids)",
+                args: { guids }
+            }
+        ]
+    });
+
+    const byGuid: { [k: string]: typeof chats[0] } = {};
+    for (const c of chats) byGuid[c.guid] = c;
+
+    for (const chat of theMessage.chats) {
+        const match = byGuid[chat.guid];
+        if (match) chat.participants = match.participants;
     }
 
     return theMessage;
