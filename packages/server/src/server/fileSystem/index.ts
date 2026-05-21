@@ -28,7 +28,10 @@ import {
     ImageMetadata,
     ImageMetadataKeys
 } from "./types";
-import { uuidv4 } from "@firebase/util";
+// @firebase/util dropped the uuidv4 named export in newer versions, which
+// crashes the attachment send path with "(0, dp.uuidv4) is not a function".
+// The repo already depends on the dedicated `uuid` package — use that.
+import { v4 as uuidv4 } from "uuid";
 
 const FindProcess = require("find-process");
 const { rimrafSync } = require("rimraf");
